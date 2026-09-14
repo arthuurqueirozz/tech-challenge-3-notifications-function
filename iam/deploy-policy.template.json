@@ -194,7 +194,11 @@
         "iam:UntagRole",
         "iam:UpdateAssumeRolePolicy"
       ],
-      "Resource": "arn:aws:iam::ACCOUNT_ID:role/fcg-fase3-notifications-role"
+      "Resource": [
+        "arn:aws:iam::ACCOUNT_ID:role/fcg-fase3-notifications-role",
+        "arn:aws:iam::ACCOUNT_ID:role/fcg-fase3-users-publisher-role",
+        "arn:aws:iam::ACCOUNT_ID:role/fcg-fase3-payments-publisher-role"
+      ]
     },
     {
       "Sid": "PassExecutionRole",

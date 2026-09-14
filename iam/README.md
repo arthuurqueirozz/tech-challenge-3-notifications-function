@@ -24,10 +24,15 @@ o documento excede o limite agregado de 2.048 caracteres desse tipo.
 
 A política permite criar, atualizar e remover somente a stack nomeada, função,
 duas filas, tabela, logs e bucket de artefatos indicados, e enviar eventos de teste.
-Permite criar/alterar a única execution role nomeada e passá-la ao Lambda.
+Permite criar/alterar a execution role nomeada e passá-la ao Lambda. Na Etapa 4,
+o responsável atualizou a política para incluir também as duas roles nomeadas
+`fcg-fase3-users-publisher-role` e `fcg-fase3-payments-publisher-role`.
 Essa capacidade de editar a role deve ficar restrita ao responsável pelo deploy.
-As APIs produtoras no Kind receberão acesso de execução apenas a SendMessage,
-não esta política de deploy; credenciais dos produtores ainda serão preparadas.
+Cada role de produtor tem apenas SendMessage na própria fila. O SAM confia
+explicitamente no usuário IAM `fiap-fase3-cli` da mesma conta para AssumeRole;
+essa trust policy permite obter sessões temporárias sem criar outras access keys.
+`scripts/prepare-stage4.ps1` da orquestração gera sessões de uma hora em arquivos
+locais ignorados pelo Git. Containers não recebem o perfil/chave de deploy.
 
 Exceções que usam Resource `*`: validação CloudFormation, leitura de mappings,
 quota da Lambda, listagem de log groups e consulta de Free Tier. Alterações em

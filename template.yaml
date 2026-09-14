@@ -82,6 +82,50 @@ Resources:
       Tags:
         - Key: Project
           Value: fcg-fase3
+  UsersPublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: fcg-fase3-users-publisher-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/fiap-fase3-cli'
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: fcg-fase3-send-user-created
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt UserCreatedQueue.Arn
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  PaymentsPublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: fcg-fase3-payments-publisher-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/fiap-fase3-cli'
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: fcg-fase3-send-payment-processed
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt PaymentProcessedQueue.Arn
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
   NotificationsFunction:
     Type: AWS::Serverless::Function
     DependsOn: NotificationLogs
@@ -131,3 +175,7 @@ Outputs:
     Value: !Ref EventsTable
   LogGroupName:
     Value: !Ref NotificationLogs
+  UsersPublisherRoleArn:
+    Value: !GetAtt UsersPublisherRole.Arn
+  PaymentsPublisherRoleArn:
+    Value: !GetAtt PaymentsPublisherRole.Arn

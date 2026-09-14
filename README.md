@@ -67,6 +67,10 @@ Não há promessa de armazenamento infinito ou de recuperação após expiraçã
 
 `template.yaml`: uma Lambda 256 MB/.NET 8/x86_64, duas filas SQS Standard,
 uma tabela DynamoDB on-demand, execution role e log group com retenção de 7 dias.
+Na Etapa 4, acrescentadas duas roles de produtores, cada uma com SendMessage
+somente na própria fila e trust no usuário `fiap-fase3-cli` da mesma conta.
+Os ARNs são outputs do SAM; a orquestração assume essas roles e injeta sessões
+temporárias nos containers. A chave de deploy permanece no host.
 Sem VPC, NAT, provisioned concurrency ou Kubernetes na AWS.
 O parâmetro `NotificationsEnabled` começa em `false`: primeiro deploy deixa os
 dois gatilhos pausados, evitando polling ocioso. Durante a demonstração/validação,
