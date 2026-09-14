@@ -1,0 +1,15 @@
+bin/
+obj/
+.aws-sam/
+.vs/
+TestResults/
+coverage/
+.env
+.env.*
+!.env.example
+*.local.*
+*.log
+*.zip
+samconfig.toml
+credentials
+.aws/

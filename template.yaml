@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FCG Fase 3 - notificacoes SQS, Lambda, DynamoDB e CloudWatch
+Resources:
+  UserCreatedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: fcg-fase3-user-created
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  PaymentProcessedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: fcg-fase3-payment-processed
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fcg-fase3-notification-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: EventKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: EventKey
+          KeyType: HASH
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  NotificationLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/fcg-fase3-notifications
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  NotificationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: fcg-fase3-notifications-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: fcg-fase3-notification-runtime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: [!GetAtt UserCreatedQueue.Arn, !GetAtt PaymentProcessedQueue.Arn]
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:GetItem]
+                Resource: !GetAtt EventsTable.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt NotificationLogs.Arn
+      Tags:
+        - Key: Project
+          Value: fcg-fase3
+  NotificationsFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: NotificationLogs
+    Properties:
+      FunctionName: fcg-fase3-notifications
+      CodeUri: src/FCG.Notifications.Function/
+      Handler: FCG.Notifications.Function::FCG.Notifications.Function.Function::FunctionHandler
+      Runtime: dotnet8
+      Architectures: [x86_64]
+      MemorySize: 256
+      Timeout: 30
+      Role: !GetAtt NotificationRole.Arn
+      Environment:
+        Variables:
+          EVENTS_TABLE: !Ref EventsTable
+          USER_CREATED_QUEUE_ARN: !GetAtt UserCreatedQueue.Arn
+          PAYMENT_PROCESSED_QUEUE_ARN: !GetAtt PaymentProcessedQueue.Arn
+      Events:
+        UserCreated:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt UserCreatedQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig:
+              MaximumConcurrency: 2
+        PaymentProcessed:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PaymentProcessedQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig:
+              MaximumConcurrency: 2
+      Tags:
+        Project: fcg-fase3
+Outputs:
+  FunctionName:
+    Value: !Ref NotificationsFunction
+  UserCreatedQueueUrl:
+    Value: !Ref UserCreatedQueue
+  PaymentProcessedQueueUrl:
+    Value: !Ref PaymentProcessedQueue
+  EventsTableName:
+    Value: !Ref EventsTable
+  LogGroupName:
+    Value: !Ref NotificationLogs
