@@ -1,6 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: FCG Fase 3 - notificacoes SQS, Lambda, DynamoDB e CloudWatch
+Parameters:
+  NotificationsEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Habilitar somente durante testes e demonstracao para limitar polling ocioso.
+Conditions:
+  ProcessNotifications: !Equals [!Ref NotificationsEnabled, 'true']
 Resources:
   UserCreatedQueue:
     Type: AWS::SQS::Queue
@@ -95,6 +103,7 @@ Resources:
         UserCreated:
           Type: SQS
           Properties:
+            Enabled: !If [ProcessNotifications, true, false]
             Queue: !GetAtt UserCreatedQueue.Arn
             BatchSize: 10
             FunctionResponseTypes: [ReportBatchItemFailures]
@@ -103,6 +112,7 @@ Resources:
         PaymentProcessed:
           Type: SQS
           Properties:
+            Enabled: !If [ProcessNotifications, true, false]
             Queue: !GetAtt PaymentProcessedQueue.Arn
             BatchSize: 10
             FunctionResponseTypes: [ReportBatchItemFailures]

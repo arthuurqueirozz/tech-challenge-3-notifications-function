@@ -67,6 +67,10 @@ Não há promessa de armazenamento infinito ou de recuperação após expiraçã
 `template.yaml`: uma Lambda 256 MB/.NET 8/x86_64, duas filas SQS Standard,
 uma tabela DynamoDB on-demand, execution role e log group com retenção de 7 dias.
 Sem VPC, NAT, provisioned concurrency ou Kubernetes na AWS.
+O parâmetro `NotificationsEnabled` começa em `false`: primeiro deploy deixa os
+dois gatilhos pausados, evitando polling ocioso. Durante a demonstração/validação,
+ambos devem estar habilitados. Pausar gatilhos não exclui mensagens; mensagens
+ainda expiram após a retenção SQS de 4 dias e devem ser processadas antes disso.
 Nomes são fixos `fcg-fase3-*`: uma instalação por conta/região.
 O bucket S3 de artefatos de deploy é suporte do SAM e será preparado à parte.
 
@@ -107,6 +111,18 @@ aws logs tail /aws/lambda/fcg-fase3-notifications --since 10m --profile fiap-fas
 ```
 
 Substituir o bucket pelo nome real; não executar com placeholder.
+Para a sessão de testes, repita o comando `sam deploy` acrescentando
+`--parameter-overrides NotificationsEnabled=true`. Ao terminar, repita com
+`--parameter-overrides NotificationsEnabled=false` e confira no changeset que
+somente os dois mappings serão pausados. Manter o parâmetro explícito em deploys
+posteriores, pois CloudFormation pode preservar o valor anterior. Essa pausa
+reduz polling; não é um bloqueio automático de cobrança da conta.
+
+Créditos promocionais: nenhum, conforme informado pelo responsável em 2026-09-14.
+Planejamento conservador: até 20h/mês com gatilhos ativos, até 1.000 invocações
+(incluindo retries), 100 MB de logs e 100 MB de artefatos. Ver estimativa em
+`docs/CUSTOS.md` no repositório de orquestração. Ampliar uso requer recalcular
+frente ao teto de USD 1/mês antes de prosseguir.
 Publicação real dos dois eventos, observação dos logs e consulta da tabela precisam
 ser realizadas antes de marcar os gates cloud. Produtores serão adaptados na Etapa 4.
 
