@@ -1,8 +1,9 @@
 # Permissões do deploy
 
-O perfil `fiap-fase3` autenticou como o usuário IAM `fiap-fase3-cli`, mas as
-consultas IAM e Free Tier retornaram AccessDenied. Autenticação já funciona;
-as permissões de deploy são uma configuração separada.
+O perfil `fiap-fase3` autentica como o usuário IAM `fiap-fase3-cli`.
+A política gerenciada `FCGFase3Deploy` foi anexada pelo responsável em 2026-09-14;
+as consultas IAM/Free Tier e a criação da stack SAM funcionaram. As negações
+iniciais de acesso foram resolvidas sem conceder AdministratorAccess.
 
 ## Política para revisão e aplicação pelo responsável
 
@@ -35,10 +36,10 @@ função deste projeto. O transform AWS SAM possui sua própria permissão.
 Não concede edição de usuários, criação de access keys, anexação de políticas
 gerenciadas, EKS, EC2, RDS, VPC ou serviços de rede.
 
-É uma política inicial derivada do template. Sua suficiência só será comprovada
-na execução real: erros de autorização devem ser analisados e corrigidos com
-ações específicas. O editor IAM/Access Analyzer e os gates cloud ainda não
-foram executados. O agente não anexou políticas à conta.
+Política derivada do template e validada na criação real da stack e atualização
+dos gatilhos. Outros caminhos, como a remoção completa, ainda não foram executados:
+erros de autorização devem ser analisados e corrigidos com ações específicas.
+O responsável anexou a política pelo console; o agente não anexou políticas ao usuário.
 
 ## Separação da execution role
 

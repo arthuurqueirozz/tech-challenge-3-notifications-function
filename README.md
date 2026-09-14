@@ -2,8 +2,9 @@
 
 Função .NET 8 para receber `UserCreatedEvent` e `PaymentProcessedEvent` diretamente
 de duas filas SQS Standard. Substitui o host ASP.NET Core contínuo da NotificationsAPI.
-Implementação local validada por 18 testes, lint e build SAM em 2026-09-14;
-o deploy AWS e os gates das Etapas 2/3 ainda estão pendentes.
+Implementação local validada por 18 testes, lint e build SAM em 2026-09-14.
+Stack AWS criada em us-east-1; resultados do gate cloud são registrados na
+documentação de evidências da orquestração.
 
 ## Origem e contratos
 
@@ -74,7 +75,7 @@ ainda expiram após a retenção SQS de 4 dias e devem ser processadas antes dis
 Nomes são fixos `fcg-fase3-*`: uma instalação por conta/região.
 O bucket S3 de artefatos de deploy é suporte do SAM e será preparado à parte.
 
-Runtime .NET 8 confirmado como suportado em 2026-09-13. A documentação AWS prevê
+Runtime .NET 8 confirmado como suportado no deploy de 2026-09-14. A documentação AWS prevê
 depreciação em 2026-11-10; verificar novamente na data do deploy, sem migrar
 o framework silenciosamente.
 
@@ -98,14 +99,26 @@ Eles não são evidência de SQS/Lambda/DynamoDB reais.
 
 Perfil local `fiap-fase3`, região `us-east-1`. A chave IAM fica no mecanismo local
 da AWS CLI; nunca no Git nem nas variáveis da Lambda, que usa a execution role.
-O usuário responsável precisa anexar as [permissões de deploy](iam/README.md)
-antes da execução. O gerador da política já foi validado localmente e não acessa a AWS.
-Custo/créditos precisam ser conferidos frente ao teto de USD 1/mês.
+O usuário responsável anexou as [permissões de deploy](iam/README.md), verificadas
+na criação real da stack. O gerador da política não acessa a AWS.
+O planejamento sem créditos está em `docs/CUSTOS.md` da orquestração.
 
 Depois de validar o template, preparar o bucket de artefatos e as permissões:
 
+O nome do bucket é `fcg-fase3-artifacts-SEU_ACCOUNT_ID-us-east-1`. Para uma conta
+nova, verificar primeiro que esse bucket não existe, criá-lo em `us-east-1` e
+aplicar o bloqueio público (a criptografia padrão S3 é SSE-S3/AES256):
+
 ```powershell
-sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcg-fase3-notifications --s3-bucket SEU_BUCKET_DE_ARTEFATOS --capabilities CAPABILITY_NAMED_IAM --region us-east-1 --profile fiap-fase3 --confirm-changeset
+aws s3api head-bucket --bucket SEU_BUCKET_DE_ARTEFATOS --expected-bucket-owner SEU_ACCOUNT_ID --profile fiap-fase3 --region us-east-1
+# Somente após confirmar Not Found e a conta esperada:
+aws s3api create-bucket --bucket SEU_BUCKET_DE_ARTEFATOS --profile fiap-fase3 --region us-east-1
+aws s3api put-public-access-block --bucket SEU_BUCKET_DE_ARTEFATOS --public-access-block-configuration 'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' --profile fiap-fase3 --region us-east-1
+aws s3api get-bucket-encryption --bucket SEU_BUCKET_DE_ARTEFATOS --profile fiap-fase3 --region us-east-1
+```
+
+```powershell
+sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcg-fase3-notifications --s3-bucket SEU_BUCKET_DE_ARTEFATOS --capabilities CAPABILITY_NAMED_IAM --region us-east-1 --profile fiap-fase3 --parameter-overrides NotificationsEnabled=false --confirm-changeset
 aws cloudformation describe-stacks --stack-name fcg-fase3-notifications --profile fiap-fase3 --region us-east-1 --query "Stacks[0].Outputs"
 aws logs tail /aws/lambda/fcg-fase3-notifications --since 10m --profile fiap-fase3 --region us-east-1
 ```
@@ -125,6 +138,40 @@ Planejamento conservador: até 20h/mês com gatilhos ativos, até 1.000 invocaç
 frente ao teto de USD 1/mês antes de prosseguir.
 Publicação real dos dois eventos, observação dos logs e consulta da tabela precisam
 ser realizadas antes de marcar os gates cloud. Produtores serão adaptados na Etapa 4.
+
+## Smoke cloud reproduzível
+
+Com a stack pronta e ambos os mappings habilitados, execute no PowerShell:
+
+```powershell
+./scripts/cloud-smoke.ps1 -AccountId SEU_ACCOUNT_ID -Profile fiap-fase3 -TestDependencyFailure
+```
+
+Substitua o ID da conta. O script confere identidade e usa apenas eventos sintéticos.
+Testa welcome, aprovação/rejeição, dados flexíveis, duplicidade pelas duas filas,
+lote direto com um registro válido e outro inválido, logs sem nome/e-mail e filas
+drenadas. A invocação direta verifica a resposta parcial de forma determinística;
+o acionamento real por SQS é verificado separadamente para ambos os eventos.
+
+`-TestDependencyFailure` aponta temporariamente `EVENTS_TABLE` da Lambda para
+`fcg-fase3-notification-events-smoke-denied`, fora das permissões da execution role.
+Nenhuma tabela extra é criada. O script aguarda a atualização ficar pronta,
+publica um evento e demonstra falha real de acesso ao DynamoDB sem marcação
+prematura de conclusão. Em `finally`, restaura as variáveis originais e aguarda
+o retry automático da mesma mensagem. Usa RevisionId para detectar concorrência.
+Não executar durante uso concorrente do projeto. Se o processo for encerrado
+à força, conferir o ambiente da função e restaurar `EVENTS_TABLE` para
+`fcg-fase3-notification-events` antes de retomar. Template e role não são alterados.
+O caso demonstra recuperação após restaurar a configuração de dependência;
+não simula uma indisponibilidade regional da AWS.
+
+Os logs podem demorar até dez minutos; a consulta começa dez minutos antes do
+relógio local para tolerar pequena diferença de horário e correlaciona IDs únicos.
+Uma diferença de cerca de dois minutos foi observada neste PC durante o primeiro
+ensaio. Saída local em `cloud-smoke.local.json`, ignorada pelo Git. Os itens
+sintéticos permanecem como evidência até a limpeza explícita da stack/tabela.
+Ao terminar, aplicar `NotificationsEnabled=false` e conferir os dois mappings
+em `Disabled`. O script não pausa o ambiente automaticamente.
 
 ## Remoção
 
