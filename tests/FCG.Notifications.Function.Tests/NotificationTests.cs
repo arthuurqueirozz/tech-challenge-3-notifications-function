@@ -27,7 +27,8 @@ public sealed class NotificationTests
 
     private static SQSEvent.SQSMessage Message(object body, string queue, string id = "m1") => new()
     {
-        MessageId = id, EventSourceArn = queue,
+        MessageId = id,
+        EventSourceArn = queue,
         Body = JsonSerializer.Serialize(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))
     };
     private static SQSEvent Batch(params SQSEvent.SQSMessage[] messages) => new() { Records = messages.ToList() };

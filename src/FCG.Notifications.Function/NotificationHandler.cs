@@ -30,8 +30,10 @@ public sealed class NotificationHandler(
                 var created = await store.RecordSimulationAsync(notification, cancellationToken);
                 log(JsonSerializer.Serialize(new
                 {
-                    level = "Information", messageId = message.MessageId,
-                    eventKey = notification.EventKey, eventType = notification.EventType,
+                    level = "Information",
+                    messageId = message.MessageId,
+                    eventKey = notification.EventKey,
+                    eventType = notification.EventType,
                     notificationKind = notification.NotificationKind,
                     result = created ? "SimulationRecorded" : "Duplicate",
                     processingStatus = "Completed"
@@ -43,8 +45,10 @@ public sealed class NotificationHandler(
                 failures.Add(new SQSBatchResponse.BatchItemFailure { ItemIdentifier = message.MessageId });
                 log(JsonSerializer.Serialize(new
                 {
-                    level = "Error", messageId = message.MessageId,
-                    result = "Retry", errorType = error.GetType().Name
+                    level = "Error",
+                    messageId = message.MessageId,
+                    result = "Retry",
+                    errorType = error.GetType().Name
                 }));
             }
         }
@@ -78,7 +82,8 @@ public sealed class NotificationHandler(
                 value.ProcessedAtUtc.ToString("O", CultureInfo.InvariantCulture),
                 new Dictionary<string, string>
                 {
-                    ["OrderId"] = value.OrderId.ToString("D"), ["UserId"] = value.UserId.ToString("D"),
+                    ["OrderId"] = value.OrderId.ToString("D"),
+                    ["UserId"] = value.UserId.ToString("D"),
                     ["GameId"] = value.GameId.ToString("D"),
                     ["Price"] = value.Price.ToString("G29", CultureInfo.InvariantCulture),
                     ["Status"] = approved ? PaymentStatuses.Approved : PaymentStatuses.Rejected

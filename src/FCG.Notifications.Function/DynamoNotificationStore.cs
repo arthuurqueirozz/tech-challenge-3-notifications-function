@@ -32,7 +32,8 @@ public sealed class DynamoNotificationStore(IAmazonDynamoDB client, string table
         {
             var previous = await client.GetItemAsync(new GetItemRequest
             {
-                TableName = table, ConsistentRead = true,
+                TableName = table,
+                ConsistentRead = true,
                 Key = new Dictionary<string, AttributeValue> { ["EventKey"] = new() { S = record.EventKey } }
             }, cancellationToken);
             if (previous.Item is not null &&

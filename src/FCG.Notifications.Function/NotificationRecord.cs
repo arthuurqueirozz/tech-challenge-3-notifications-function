@@ -14,7 +14,8 @@ public sealed record NotificationRecord(
     public string Fingerprint => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
-            EventType, NotificationKind,
+            EventType,
+            NotificationKind,
             Data = Data.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray()
         }))));
 }
