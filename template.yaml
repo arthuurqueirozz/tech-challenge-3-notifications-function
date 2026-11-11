@@ -1,7 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: FCG Fase 3 - notificacoes SQS, Lambda, DynamoDB e CloudWatch
+Description: FCG Fase 4 - notificacoes SQS, Lambda, DynamoDB e CloudWatch; producer identities belong to orchestration
 Parameters:
+  ProjectName:
+    Type: String
+    Default: fcg-fase4
+    MinLength: 3
+    MaxLength: 28
+    AllowedPattern: '^[a-z][a-z0-9-]*$'
+    Description: Prefixo exclusivo para uma instalacao por conta/regiao; nao reutilizar a stack historica F3.
   NotificationsEnabled:
     Type: String
     Default: 'false'
@@ -12,30 +19,36 @@ Conditions:
 Resources:
   UserCreatedQueue:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      QueueName: fcg-fase3-user-created
+      QueueName: !Sub '${ProjectName}-user-created'
       VisibilityTimeout: 180
       MessageRetentionPeriod: 345600
       ReceiveMessageWaitTimeSeconds: 20
       SqsManagedSseEnabled: true
       Tags:
         - Key: Project
-          Value: fcg-fase3
+          Value: !Ref ProjectName
   PaymentProcessedQueue:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      QueueName: fcg-fase3-payment-processed
+      QueueName: !Sub '${ProjectName}-payment-processed'
       VisibilityTimeout: 180
       MessageRetentionPeriod: 345600
       ReceiveMessageWaitTimeSeconds: 20
       SqsManagedSseEnabled: true
       Tags:
         - Key: Project
-          Value: fcg-fase3
+          Value: !Ref ProjectName
   EventsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      TableName: fcg-fase3-notification-events
+      TableName: !Sub '${ProjectName}-notification-events'
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: EventKey
@@ -45,19 +58,21 @@ Resources:
           KeyType: HASH
       Tags:
         - Key: Project
-          Value: fcg-fase3
+          Value: !Ref ProjectName
   NotificationLogs:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      LogGroupName: /aws/lambda/fcg-fase3-notifications
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-notifications'
       RetentionInDays: 7
       Tags:
         - Key: Project
-          Value: fcg-fase3
+          Value: !Ref ProjectName
   NotificationRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: fcg-fase3-notifications-role
+      RoleName: !Sub '${ProjectName}-notifications-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -66,7 +81,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: fcg-fase3-notification-runtime
+        - PolicyName: !Sub '${ProjectName}-notification-runtime'
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -81,59 +96,15 @@ Resources:
                 Resource: !GetAtt NotificationLogs.Arn
       Tags:
         - Key: Project
-          Value: fcg-fase3
-  UsersPublisherRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: fcg-fase3-users-publisher-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/fiap-fase3-cli'
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: fcg-fase3-send-user-created
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !GetAtt UserCreatedQueue.Arn
-      Tags:
-        - Key: Project
-          Value: fcg-fase3
-  PaymentsPublisherRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: fcg-fase3-payments-publisher-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/fiap-fase3-cli'
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: fcg-fase3-send-payment-processed
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !GetAtt PaymentProcessedQueue.Arn
-      Tags:
-        - Key: Project
-          Value: fcg-fase3
+          Value: !Ref ProjectName
   NotificationsFunction:
     Type: AWS::Serverless::Function
     DependsOn: NotificationLogs
     Properties:
-      FunctionName: fcg-fase3-notifications
+      FunctionName: !Sub '${ProjectName}-notifications'
       CodeUri: src/FCG.Notifications.Function/
       Handler: FCG.Notifications.Function::FCG.Notifications.Function.Function::FunctionHandler
-      Runtime: dotnet8
+      Runtime: dotnet10
       Architectures: [x86_64]
       MemorySize: 256
       Timeout: 30
@@ -163,19 +134,27 @@ Resources:
             ScalingConfig:
               MaximumConcurrency: 2
       Tags:
-        Project: fcg-fase3
+        Project: !Ref ProjectName
 Outputs:
   FunctionName:
     Value: !Ref NotificationsFunction
+  FunctionArn:
+    Value: !GetAtt NotificationsFunction.Arn
+  UserCreatedQueueArn:
+    Value: !GetAtt UserCreatedQueue.Arn
   UserCreatedQueueUrl:
     Value: !Ref UserCreatedQueue
   PaymentProcessedQueueUrl:
     Value: !Ref PaymentProcessedQueue
+  PaymentProcessedQueueArn:
+    Value: !GetAtt PaymentProcessedQueue.Arn
   EventsTableName:
     Value: !Ref EventsTable
+  EventsTableArn:
+    Value: !GetAtt EventsTable.Arn
   LogGroupName:
     Value: !Ref NotificationLogs
-  UsersPublisherRoleArn:
-    Value: !GetAtt UsersPublisherRole.Arn
-  PaymentsPublisherRoleArn:
-    Value: !GetAtt PaymentsPublisherRole.Arn
+  LogGroupArn:
+    Value: !GetAtt NotificationLogs.Arn
+  NotificationsRoleArn:
+    Value: !GetAtt NotificationRole.Arn
