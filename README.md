@@ -1,10 +1,10 @@
 # FIAP Cloud Games - Notifications Function
 
-Função .NET 8 para receber `UserCreatedEvent` e `PaymentProcessedEvent` diretamente
+Função .NET 10 para receber `UserCreatedEvent` e `PaymentProcessedEvent` diretamente
 de duas filas SQS Standard. Substitui o host ASP.NET Core contínuo da NotificationsAPI.
-Implementação local validada por 18 testes, lint e build SAM em 2026-09-14.
-Stack AWS criada em us-east-1; resultados do gate cloud são registrados na
-documentação de evidências da orquestração.
+A Fase 4 preserva os handlers e os contratos da Fase 3, atualiza o runtime para
+.NET 10 e parametriza uma instalação nova na conta/região autorizadas.
+A validação local e as provas AWS têm evidências separadas no repositório central.
 
 ## Origem e contratos
 
@@ -63,131 +63,110 @@ Sem DLQ adicional para manter as duas filas escolhidas no plano: uma mensagem
 permanentemente inválida repete e deve ser diagnosticada antes da retenção expirar.
 Não há promessa de armazenamento infinito ou de recuperação após expiração SQS.
 
-## Recursos SAM
+## Recursos SAM da Fase 4
 
-`template.yaml`: uma Lambda 256 MB/.NET 8/x86_64, duas filas SQS Standard,
-uma tabela DynamoDB on-demand, execution role e log group com retenção de 7 dias.
-Na Etapa 4, acrescentadas duas roles de produtores, cada uma com SendMessage
-somente na própria fila e trust no usuário `fiap-fase3-cli` da mesma conta.
-Os ARNs são outputs do SAM; a orquestração assume essas roles e injeta sessões
-temporárias nos containers. A chave de deploy permanece no host.
-Sem VPC, NAT, provisioned concurrency ou Kubernetes na AWS.
-O parâmetro `NotificationsEnabled` começa em `false`: primeiro deploy deixa os
-dois gatilhos pausados, evitando polling ocioso. Durante a demonstração/validação,
-ambos devem estar habilitados. Pausar gatilhos não exclui mensagens; mensagens
-ainda expiram após a retenção SQS de 4 dias e devem ser processadas antes disso.
-Nomes são fixos `fcg-fase3-*`: uma instalação por conta/região.
-O bucket S3 de artefatos de deploy é suporte do SAM e será preparado à parte.
+`template.yaml` contém uma Lambda 256 MB/.NET 10/x86_64, duas filas SQS Standard,
+uma tabela DynamoDB on-demand, a execution role da função e um log group com
+retenção de 7 dias. `ProjectName` tem padrão `fcg-fase4`; os nomes dos recursos
+são derivados desse prefixo. Use stack nova para esta instalação, preservando a
+stack e os recursos históricos da Fase 3.
 
-Runtime .NET 8 confirmado como suportado no deploy de 2026-09-14. A documentação AWS prevê
-depreciação em 2026-11-10; verificar novamente na data do deploy, sem migrar
-o framework silenciosamente.
+SAM administra somente a identidade da função. As identidades de Users/Payments
+pertencem a `infra/aws/templates/runtime-identity.json` da orquestração e usam
+EKS Pod Identity com `sqs:SendMessage` exclusivamente na fila de cada produtor.
+A função usa sua execution role para consumir as duas filas, gravar/ler a tabela
+e registrar logs. Nenhum usuário IAM ou credencial temporária do host é injetado
+nos pods ou na função.
 
-## Testes e build
+O parâmetro `NotificationsEnabled` começa em `false`, permitindo preparar os
+recursos antes de ativar os consumidores. Use `true` durante as provas dos dois
+eventos e durante a apresentação. Fora dessa janela, uma pausa precisa ser
+explícita; ela não congela a retenção das mensagens nem encerra todos os custos.
+Passe ambos os parâmetros explicitamente nas atualizações para evitar preservar
+um valor anterior involuntariamente.
 
-Na raiz deste repositório, com SDK .NET 8 disponível:
+| Output SAM | Uso na orquestração |
+|---|---|
+| `UserCreatedQueueArn`, `PaymentProcessedQueueArn` | Políticas de publicação e associação das identidades dos pods |
+| `UserCreatedQueueUrl`, `PaymentProcessedQueueUrl` | Configuração SQS de Users/Payments, respectivamente |
+| `EventsTableName`, `EventsTableArn` | Evidência NoSQL e inventário de retenção |
+| `FunctionName`, `FunctionArn` | Inspeção da função e dos dois event source mappings |
+| `LogGroupName`, `LogGroupArn` | Consulta/exportação de logs seguros |
+| `NotificationsRoleArn` | Inspeção das permissões de execução da função |
+
+Não existem outputs de papéis de produtores no SAM. A sequência é SAM → runtime
+identity da orquestração → bootstrap dos produtores, usando os outputs reais.
+O bucket privado de artefatos é preparação externa do SAM, com bloqueio de acesso
+público e criptografia; seu nome e sua conta proprietária devem ser verificados
+antes de uso. Não use recursos ou credenciais da conta anterior por suposição.
+
+## Testes e build local
+
+Na raiz deste repositório, com SDK .NET 10 e SAM CLI disponíveis:
 
 ```powershell
+dotnet restore TechChallenge.Notifications.Function.sln --locked-mode
+dotnet build TechChallenge.Notifications.Function.sln --configuration Release --no-restore
 dotnet run --project tests/FCG.Notifications.Function.Tests/FCG.Notifications.Function.Tests.csproj --configuration Release
-sam validate --lint --template-file template.yaml --region us-east-1
+sam validate --lint --template-file template.yaml --region us-east-2
 sam build --template-file template.yaml
 ```
 
-Os testes usam um cliente DynamoDB em memória para exercitar o handler e o store.
-Cobrem os dois eventos, aprovação/rejeição, duplicidade, timestamp de retry,
-falha antes/depois da gravação, falha de leitura, lote parcial, payload inválido,
-origem desconhecida, item incompleto/conflitante, privacidade e cancelamento.
-Eles não são evidência de SQS/Lambda/DynamoDB reais.
+Os testes existentes usam um cliente DynamoDB em memória para exercitar o handler
+e o store: dois eventos, aprovação/rejeição, duplicidade, timestamp de retry,
+falha antes/depois da gravação, leitura, lote parcial, payload inválido,
+origem desconhecida, conflito, privacidade e cancelamento. Eles não comprovam
+SQS/Lambda/DynamoDB reais. Mudança apenas no template não exige repetir os testes
+do handler quando sua fonte e suas dependências permanecem iguais.
 
-## Deploy e acesso
+## Instalação e prova AWS
 
-Perfil local `fiap-fase3`, região `us-east-1`. A chave IAM fica no mecanismo local
-da AWS CLI; nunca no Git nem nas variáveis da Lambda, que usa a execution role.
-O usuário responsável anexou as [permissões de deploy](iam/README.md), verificadas
-na criação real da stack. O gerador da política não acessa a AWS.
-O planejamento sem créditos está em `docs/CUSTOS.md` da orquestração.
+A região acordada da Fase 4 é `us-east-2`, perfil local `fiap-fase4`, stack nova
+`fcg-fase4-notifications`. A janela autorizada é 13/11/2026 20h até 18/11/2026
+20h BRT; criação depende do gate de conta FREE/ACTIVE, saldo, permissões e cobertura
+de custo do runbook central. Sem upgrade para Paid ou desembolso pessoal.
 
-Depois de validar o template, preparar o bucket de artefatos e as permissões:
+O [README central da orquestração](https://github.com/arthuurqueirozz/tech-challenge-3-orchestration)
+coordena o bucket de artefatos, build/deploy SAM e a passagem de outputs entre stacks.
+Antes de deploy, conferir conta, região, parâmetros e changeset. A publicação
+deve usar o template gerado pelo `sam build`, `CAPABILITY_NAMED_IAM` e o bucket
+privado efetivamente preparado. O build local não cria recursos AWS.
 
-O nome do bucket é `fcg-fase3-artifacts-SEU_ACCOUNT_ID-us-east-1`. Para uma conta
-nova, verificar primeiro que esse bucket não existe, criá-lo em `us-east-1` e
-aplicar o bloqueio público (a criptografia padrão S3 é SSE-S3/AES256):
+Após instalar e ativar `NotificationsEnabled=true`, comprovar:
 
-```powershell
-aws s3api head-bucket --bucket SEU_BUCKET_DE_ARTEFATOS --expected-bucket-owner SEU_ACCOUNT_ID --profile fiap-fase3 --region us-east-1
-# Somente após confirmar Not Found e a conta esperada:
-aws s3api create-bucket --bucket SEU_BUCKET_DE_ARTEFATOS --profile fiap-fase3 --region us-east-1
-aws s3api put-public-access-block --bucket SEU_BUCKET_DE_ARTEFATOS --public-access-block-configuration 'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' --profile fiap-fase3 --region us-east-1
-aws s3api get-bucket-encryption --bucket SEU_BUCKET_DE_ARTEFATOS --profile fiap-fase3 --region us-east-1
-```
+1. Os dois mappings estão habilitados e apontam para os ARNs reais do SAM.
+2. Cadastro via Users publica `UserCreatedEvent` e cria o item correspondente no DynamoDB.
+3. Pagamento aprovado/rejeitado via Payments cria o item e o estado esperados.
+4. Repetição com o mesmo identificador preserva um único efeito lógico.
+5. Logs e itens de evidência não contêm nome, e-mail, token, senha ou payload completo.
 
-```powershell
-sam deploy --template-file .aws-sam/build/template.yaml --stack-name fcg-fase3-notifications --s3-bucket SEU_BUCKET_DE_ARTEFATOS --capabilities CAPABILITY_NAMED_IAM --region us-east-1 --profile fiap-fase3 --parameter-overrides NotificationsEnabled=false --confirm-changeset
-aws cloudformation describe-stacks --stack-name fcg-fase3-notifications --profile fiap-fase3 --region us-east-1 --query "Stacks[0].Outputs"
-aws logs tail /aws/lambda/fcg-fase3-notifications --since 10m --profile fiap-fase3 --region us-east-1
-```
+Registre conta/região, versão, horários, IDs sintéticos, estados observados e
+caminhos das provas; não inclua segredos. A simulação não envia e-mail real.
 
-Substituir o bucket pelo nome real; não executar com placeholder.
-Para a sessão de testes, repita o comando `sam deploy` acrescentando
-`--parameter-overrides NotificationsEnabled=true`. Ao terminar, repita com
-`--parameter-overrides NotificationsEnabled=false` e confira no changeset que
-somente os dois mappings serão pausados. Manter o parâmetro explícito em deploys
-posteriores, pois CloudFormation pode preservar o valor anterior. Essa pausa
-reduz polling; não é um bloqueio automático de cobrança da conta.
+`scripts/cloud-smoke.ps1`, `scripts/render-deploy-policy.ps1` e `iam/` preservam a
+implementação histórica F3 com nomes, identidade e política antigos. Eles não são
+o procedimento cloud da Fase 4. O teste antigo `-TestDependencyFailure` altera o
+ambiente da função e não deve ser usado na instância final concorrente. A prova
+F4 segue o procedimento não destrutivo da orquestração.
 
-Créditos promocionais: nenhum, conforme informado pelo responsável em 2026-09-14.
-Planejamento conservador: até 20h/mês com gatilhos ativos, até 1.000 invocações
-(incluindo retries), 100 MB de logs e 100 MB de artefatos. Ver estimativa em
-`docs/CUSTOS.md` no repositório de orquestração. Ampliar uso requer recalcular
-frente ao teto de USD 1/mês antes de prosseguir.
-Publicação real dos dois eventos, observação dos logs e consulta da tabela precisam
-ser realizadas antes de marcar os gates cloud. Produtores serão adaptados na Etapa 4.
+## Retenção e encerramento
 
-## Smoke cloud reproduzível
+As duas filas, a tabela e o log group têm `DeletionPolicy: Retain` e
+`UpdateReplacePolicy: Retain`. Excluir a stack remove função/papel/mappings, mas
+preserva esses quatro recursos; trocar o prefixo também deixa os dados anteriores
+retidos. Recursos preservados podem continuar gerando cobrança e não são
+automaticamente adotados por uma nova stack com o mesmo nome.
 
-Com a stack pronta e ambos os mappings habilitados, execute no PowerShell:
-
-```powershell
-./scripts/cloud-smoke.ps1 -AccountId SEU_ACCOUNT_ID -Profile fiap-fase3 -TestDependencyFailure
-```
-
-Substitua o ID da conta. O script confere identidade e usa apenas eventos sintéticos.
-Testa welcome, aprovação/rejeição, dados flexíveis, duplicidade pelas duas filas,
-lote direto com um registro válido e outro inválido, logs sem nome/e-mail e filas
-drenadas. A invocação direta verifica a resposta parcial de forma determinística;
-o acionamento real por SQS é verificado separadamente para ambos os eventos.
-
-`-TestDependencyFailure` aponta temporariamente `EVENTS_TABLE` da Lambda para
-`fcg-fase3-notification-events-smoke-denied`, fora das permissões da execution role.
-Nenhuma tabela extra é criada. O script aguarda a atualização ficar pronta,
-publica um evento e demonstra falha real de acesso ao DynamoDB sem marcação
-prematura de conclusão. Em `finally`, restaura as variáveis originais e aguarda
-o retry automático da mesma mensagem. Usa RevisionId para detectar concorrência.
-Não executar durante uso concorrente do projeto. Se o processo for encerrado
-à força, conferir o ambiente da função e restaurar `EVENTS_TABLE` para
-`fcg-fase3-notification-events` antes de retomar. Template e role não são alterados.
-O caso demonstra recuperação após restaurar a configuração de dependência;
-não simula uma indisponibilidade regional da AWS.
-
-Os logs podem demorar até dez minutos; a consulta começa dez minutos antes do
-relógio local para tolerar pequena diferença de horário e correlaciona IDs únicos.
-Uma diferença de cerca de dois minutos foi observada neste PC durante o primeiro
-ensaio. Saída local em `cloud-smoke.local.json`, ignorada pelo Git. Os itens
-sintéticos permanecem como evidência até a limpeza explícita da stack/tabela.
-Ao terminar, aplicar `NotificationsEnabled=false` e conferir os dois mappings
-em `Disabled`. O script não pausa o ambiente automaticamente.
-
-## Remoção
-
-Depois de preservar evidências, conferir stack, conta, região e autorização:
-`sam delete --stack-name fcg-fase3-notifications --profile fiap-fase3 --region us-east-1`.
-A remoção da stack apaga os registros da tabela e logs (sem políticas de retenção
-de recursos), além das filas e função. O bucket de artefatos exige verificação
-separada. Não executar limpeza enquanto as evidências ainda forem necessárias.
+Na janela de encerramento autorizada, interromper os produtores, drenar e conferir
+as filas, pausar os dois mappings e exportar os dados/evidências acordados. Depois
+da remoção da stack, inventariar explicitamente filas/tabela/log group e o bucket
+de artefatos, tratando os recursos retidos conforme a autorização de preservação.
+Pausar consumers não impede expiração SQS após quatro dias nem expiração de logs
+após sete dias. Não prometer preservação indefinida com essas retenções.
 
 ## Referências
 
-- Enunciado local, páginas 4 a 6; plano de implementação, Etapas 2 e 3.
 - [SQS/Lambda](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html)
 - [Falhas parciais](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-errorhandling.html)
-- [Runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)
+- [Runtimes Lambda](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)
+- [Pod Identity e trust por namespace/ServiceAccount](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html)
